@@ -1,5 +1,7 @@
 import { Router, type Request, type Response } from "express";
 import { Post } from "../models/post.ts";
+import { validate } from "../middleware/validate.ts";
+import { createPostSchema, updatePostSchema } from "../schemas/post.ts";
 
 const router = Router();
 
@@ -20,20 +22,13 @@ router.get("/:id", async (req: Request, res: Response) => {
 });
 
 // POST /posts - Create a new post
-router.post("/", async (req: Request, res: Response) => {
-  const { title, content, author } = req.body;
-
-  if (!title || !content || !author) {
-    res.status(400).json({ error: "title, content, and author are required" });
-    return;
-  }
-
-  const post = await Post.create({ title, content, author });
+router.post("/", validate(createPostSchema), async (req: Request, res: Response) => {
+  const post = await Post.create(req.body);
   res.status(201).json(post);
 });
 
 // PATCH /posts/:id - Update a post
-router.patch("/:id", async (req: Request, res: Response) => {
+router.patch("/:id", validate(updatePostSchema), async (req: Request, res: Response) => {
   const post = await Post.findByIdAndUpdate(req.params["id"], req.body, {
     returnDocument: "after",
     runValidators: true,
