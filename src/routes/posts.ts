@@ -45,7 +45,7 @@ router.patch("/:id", validate(updatePostSchema), async (req: Request, res: Respo
 
 // PATCH /posts/:id/publish - Publish a draft post
 router.patch("/:id/publish", async (req: Request, res: Response) => {
-  const post = await publishPost(req.params["id"]!);
+  const post = await publishPost(req.params["id"] as string);
   sendSuccess(res, post);
 });
 
