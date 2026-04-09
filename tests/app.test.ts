@@ -1,7 +1,14 @@
-import { describe, test, expect } from "bun:test";
+import { describe, test, expect, beforeEach } from "bun:test";
 import { setupTestServer, getBaseUrl, json } from "./setup.ts";
+import { resetRateLimitStore } from "../src/middleware/rateLimiter.ts";
+import { resetRequestCounts } from "../src/middleware/requestCounter.ts";
 
 setupTestServer();
+
+beforeEach(() => {
+  resetRateLimitStore();
+  resetRequestCounts();
+});
 
 describe("GET /", () => {
   test("returns 200 status", async () => {
@@ -121,5 +128,86 @@ describe("Unknown routes", () => {
     expect(res.status).toBe(404);
     const data = await json(res);
     expect(data).toEqual({ success: false, error: { message: "Not found" } });
+  });
+});
+
+describe("Rate limiting", () => {
+  test("allows requests within the limit", async () => {
+    const res = await fetch(`${getBaseUrl()}/health`);
+    expect(res.status).toBe(200);
+  });
+
+  test("returns 429 when rate limit exceeded", async () => {
+    // Send 100 requests to exhaust the limit
+    const requests = Array.from({ length: 100 }, () =>
+      fetch(`${getBaseUrl()}/health`)
+    );
+    await Promise.all(requests);
+
+    // 101st request should be blocked
+    const res = await fetch(`${getBaseUrl()}/health`);
+    expect(res.status).toBe(429);
+    const data = await json(res);
+    expect(data.success).toBe(false);
+    expect(data.error.message).toContain("Too many requests");
+  });
+
+  test("includes Retry-After header on 429", async () => {
+    const requests = Array.from({ length: 100 }, () =>
+      fetch(`${getBaseUrl()}/health`)
+    );
+    await Promise.all(requests);
+
+    const res = await fetch(`${getBaseUrl()}/health`);
+    expect(res.status).toBe(429);
+    const retryAfter = res.headers.get("retry-after");
+    expect(retryAfter).toBeDefined();
+    expect(Number(retryAfter)).toBeGreaterThan(0);
+    expect(Number(retryAfter)).toBeLessThanOrEqual(60);
+  });
+});
+
+describe("GET /metrics", () => {
+  test("returns request counts in envelope", async () => {
+    // Make some requests to different endpoints
+    await fetch(`${getBaseUrl()}/health`);
+    await fetch(`${getBaseUrl()}/health`);
+    await fetch(`${getBaseUrl()}/`);
+
+    const res = await fetch(`${getBaseUrl()}/metrics`);
+    expect(res.status).toBe(200);
+    const data = await json<{ success: true; data: { endpoint: string; count: number }[] }>(res);
+    expect(data.success).toBe(true);
+    expect(Array.isArray(data.data)).toBe(true);
+
+    const healthEntry = data.data.find((e) => e.endpoint === "GET /health");
+    expect(healthEntry).toBeDefined();
+    expect(healthEntry!.count).toBe(2);
+  });
+
+  test("sorts endpoints by count descending", async () => {
+    await fetch(`${getBaseUrl()}/health`);
+    await fetch(`${getBaseUrl()}/`);
+    await fetch(`${getBaseUrl()}/`);
+    await fetch(`${getBaseUrl()}/`);
+
+    const res = await fetch(`${getBaseUrl()}/metrics`);
+    const data = await json<{ success: true; data: { endpoint: string; count: number }[] }>(res);
+
+    // Filter out the /metrics request itself
+    const nonMetrics = data.data.filter((e) => e.endpoint !== "GET /metrics");
+    expect(nonMetrics[0]!.endpoint).toBe("GET /");
+    expect(nonMetrics[0]!.count).toBe(3);
+    expect(nonMetrics[1]!.endpoint).toBe("GET /health");
+    expect(nonMetrics[1]!.count).toBe(1);
+  });
+
+  test("returns empty array when no requests have been made", async () => {
+    const res = await fetch(`${getBaseUrl()}/metrics`);
+    expect(res.status).toBe(200);
+    const data = await json<{ success: true; data: { endpoint: string; count: number }[] }>(res);
+    // Only the /metrics request itself should be counted
+    expect(data.data).toHaveLength(1);
+    expect(data.data[0]!.endpoint).toBe("GET /metrics");
   });
 });
