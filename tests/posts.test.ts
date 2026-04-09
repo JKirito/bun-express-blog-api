@@ -54,9 +54,46 @@ describe("POST /posts", () => {
     expect(body.data.content).toBe(samplePost.content);
     expect(body.data.author).toBe(samplePost.author);
     expect(body.data.status).toBe("draft");
+    expect(body.data.tags).toEqual([]);
     expect(body.data._id).toBeDefined();
     expect(body.data.createdAt).toBeDefined();
     expect(body.data.updatedAt).toBeDefined();
+  });
+
+  test("creates a post with tags", async () => {
+    const res = await post("/posts", { ...samplePost, tags: ["JavaScript", "Bun", "Tutorial"] });
+    expect(res.status).toBe(201);
+    const body = await json<SuccessBody>(res);
+    expect(body.data.tags).toEqual(["javascript", "bun", "tutorial"]);
+  });
+
+  test("deduplicates tags", async () => {
+    const res = await post("/posts", { ...samplePost, tags: ["Bun", "bun", "BUN"] });
+    expect(res.status).toBe(201);
+    const body = await json<SuccessBody>(res);
+    expect(body.data.tags).toEqual(["bun"]);
+  });
+
+  test("returns 400 when tags is not an array", async () => {
+    const res = await post("/posts", { ...samplePost, tags: "javascript" });
+    expect(res.status).toBe(400);
+    const body = await json<ErrorBody>(res);
+    expect(body.error.errors!.some((e) => e.field === "tags")).toBe(true);
+  });
+
+  test("returns 400 when tag is empty string", async () => {
+    const res = await post("/posts", { ...samplePost, tags: ["valid", ""] });
+    expect(res.status).toBe(400);
+    const body = await json<ErrorBody>(res);
+    expect(body.success).toBe(false);
+  });
+
+  test("returns 400 when more than 10 tags", async () => {
+    const tags = Array.from({ length: 11 }, (_, i) => `tag${i}`);
+    const res = await post("/posts", { ...samplePost, tags });
+    expect(res.status).toBe(400);
+    const body = await json<ErrorBody>(res);
+    expect(body.success).toBe(false);
   });
 
   test("ignores status field in request body", async () => {
@@ -172,6 +209,90 @@ describe("GET /posts", () => {
     expect(body.data).toHaveLength(2);
     expect(body.data[0]!.title).toBe("Second");
     expect(body.data[1]!.title).toBe("First");
+  });
+
+  test("filters published posts by tag", async () => {
+    await Post.create({ ...samplePost, title: "JS Post", tags: ["javascript"], status: "published" });
+    await Post.create({ ...samplePost, title: "Go Post", tags: ["go"], status: "published" });
+    await Post.create({ ...samplePost, title: "JS Draft", tags: ["javascript"], status: "draft" });
+
+    const res = await fetch(`${getBaseUrl()}/posts?tag=javascript`);
+    expect(res.status).toBe(200);
+    const body = await json<{ success: true; data: Record<string, unknown>[] }>(res);
+    expect(body.data).toHaveLength(1);
+    expect(body.data[0]!.title).toBe("JS Post");
+  });
+
+  test("tag filter is case-insensitive", async () => {
+    await Post.create({ ...samplePost, title: "JS Post", tags: ["javascript"], status: "published" });
+
+    const res = await fetch(`${getBaseUrl()}/posts?tag=JavaScript`);
+    expect(res.status).toBe(200);
+    const body = await json<{ success: true; data: Record<string, unknown>[] }>(res);
+    expect(body.data).toHaveLength(1);
+  });
+
+  test("returns empty array when no posts match tag", async () => {
+    await Post.create({ ...samplePost, tags: ["go"], status: "published" });
+
+    const res = await fetch(`${getBaseUrl()}/posts?tag=rust`);
+    expect(res.status).toBe(200);
+    const body = await json<{ success: true; data: unknown[] }>(res);
+    expect(body.data).toEqual([]);
+  });
+});
+
+describe("GET /posts/tags", () => {
+  test("returns popular tags sorted by count", async () => {
+    await Post.create({ ...samplePost, title: "P1", tags: ["javascript", "bun"], status: "published" });
+    await Post.create({ ...samplePost, title: "P2", tags: ["javascript", "tutorial"], status: "published" });
+    await Post.create({ ...samplePost, title: "P3", tags: ["javascript"], status: "published" });
+
+    const res = await fetch(`${getBaseUrl()}/posts/tags`);
+    expect(res.status).toBe(200);
+    const body = await json<{ success: true; data: { tag: string; count: number }[] }>(res);
+    expect(body.success).toBe(true);
+    expect(body.data[0]!.tag).toBe("javascript");
+    expect(body.data[0]!.count).toBe(3);
+    expect(body.data[1]!.count).toBeLessThanOrEqual(body.data[0]!.count);
+  });
+
+  test("excludes tags from draft posts", async () => {
+    await Post.create({ ...samplePost, title: "Published", tags: ["visible"], status: "published" });
+    await Post.create({ ...samplePost, title: "Draft", tags: ["hidden"], status: "draft" });
+
+    const res = await fetch(`${getBaseUrl()}/posts/tags`);
+    expect(res.status).toBe(200);
+    const body = await json<{ success: true; data: { tag: string; count: number }[] }>(res);
+    const tagNames = body.data.map((t) => t.tag);
+    expect(tagNames).toContain("visible");
+    expect(tagNames).not.toContain("hidden");
+  });
+
+  test("returns empty array when no published posts have tags", async () => {
+    await Post.create({ ...samplePost, status: "published" });
+
+    const res = await fetch(`${getBaseUrl()}/posts/tags`);
+    expect(res.status).toBe(200);
+    const body = await json<{ success: true; data: unknown[] }>(res);
+    expect(body.data).toEqual([]);
+  });
+
+  test("limits to top 10 tags", async () => {
+    // Create 12 unique tags across published posts
+    for (let i = 0; i < 12; i++) {
+      await Post.create({
+        ...samplePost,
+        title: `Post ${i}`,
+        tags: [`tag${i}`],
+        status: "published",
+      });
+    }
+
+    const res = await fetch(`${getBaseUrl()}/posts/tags`);
+    expect(res.status).toBe(200);
+    const body = await json<{ success: true; data: { tag: string; count: number }[] }>(res);
+    expect(body.data).toHaveLength(10);
   });
 });
 

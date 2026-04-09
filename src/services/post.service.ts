@@ -3,6 +3,27 @@ import { NotFoundError, ConflictError, BadRequestError } from "../errors/index.t
 
 const MIN_PUBLISH_CONTENT_LENGTH = 50;
 
+export async function getPublishedPosts(tag?: string) {
+  const filter: Record<string, unknown> = { status: "published" };
+
+  if (tag) {
+    filter.tags = tag.toLowerCase();
+  }
+
+  return Post.find(filter).sort({ createdAt: -1 });
+}
+
+export async function getPopularTags(limit = 10) {
+  return Post.aggregate([
+    { $match: { status: "published" } },
+    { $unwind: "$tags" },
+    { $group: { _id: "$tags", count: { $sum: 1 } } },
+    { $sort: { count: -1 } },
+    { $limit: limit },
+    { $project: { _id: 0, tag: "$_id", count: 1 } },
+  ]);
+}
+
 export async function publishPost(id: string) {
   const post = await Post.findById(id);
 

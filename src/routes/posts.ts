@@ -3,14 +3,21 @@ import { Post } from "../models/post.ts";
 import { validate } from "../middleware/validate.ts";
 import { createPostSchema, updatePostSchema } from "../schemas/post.ts";
 import { sendSuccess, sendError } from "../utils/response.ts";
-import { publishPost } from "../services/post.service.ts";
+import { publishPost, getPublishedPosts, getPopularTags } from "../services/post.service.ts";
 
 const router = Router();
 
-// GET /posts - List all published posts
-router.get("/", async (_req: Request, res: Response) => {
-  const posts = await Post.find({ status: "published" }).sort({ createdAt: -1 });
+// GET /posts - List all published posts (optionally filtered by tag)
+router.get("/", async (req: Request, res: Response) => {
+  const tag = req.query["tag"] as string | undefined;
+  const posts = await getPublishedPosts(tag);
   sendSuccess(res, posts);
+});
+
+// GET /posts/tags - Get popular tags across published posts
+router.get("/tags", async (_req: Request, res: Response) => {
+  const tags = await getPopularTags();
+  sendSuccess(res, tags);
 });
 
 // GET /posts/:id - Get a single post
