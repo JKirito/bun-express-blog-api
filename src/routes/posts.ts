@@ -3,7 +3,8 @@ import { Post } from "../models/post.ts";
 import { validate } from "../middleware/validate.ts";
 import { createPostSchema, updatePostSchema } from "../schemas/post.ts";
 import { sendSuccess, sendError } from "../utils/response.ts";
-import { publishPost, getPublishedPosts, getPopularTags } from "../services/post.service.ts";
+import { publishPost, getPublishedPosts, getPopularTags, updatePost } from "../services/post.service.ts";
+import { getHistory, rollbackPost } from "../services/version.service.ts";
 
 const router = Router();
 
@@ -18,6 +19,12 @@ router.get("/", async (req: Request, res: Response) => {
 router.get("/tags", async (_req: Request, res: Response) => {
   const tags = await getPopularTags();
   sendSuccess(res, tags);
+});
+
+// GET /posts/:id/history - Get edit history for a post
+router.get("/:id/history", async (req: Request, res: Response) => {
+  const history = await getHistory(req.params["id"] as string);
+  sendSuccess(res, history);
 });
 
 // GET /posts/:id - Get a single post
@@ -36,17 +43,20 @@ router.post("/", validate(createPostSchema), async (req: Request, res: Response)
   sendSuccess(res, post, 201);
 });
 
-// PATCH /posts/:id - Update a post
+// PATCH /posts/:id - Update a post (creates a version)
 router.patch("/:id", validate(updatePostSchema), async (req: Request, res: Response) => {
-  const post = await Post.findByIdAndUpdate(req.params["id"], req.body, {
-    returnDocument: "after",
-    runValidators: true,
-  });
+  const post = await updatePost(req.params["id"] as string, req.body as Record<string, unknown>);
+  sendSuccess(res, post);
+});
 
-  if (!post) {
-    sendError(res, "Post not found", 404);
+// PATCH /posts/:id/rollback/:version - Rollback to a specific version
+router.patch("/:id/rollback/:version", async (req: Request, res: Response) => {
+  const version = parseInt(req.params["version"] as string, 10);
+  if (isNaN(version)) {
+    sendError(res, "Version must be a number", 400);
     return;
   }
+  const post = await rollbackPost(req.params["id"] as string, version);
   sendSuccess(res, post);
 });
 

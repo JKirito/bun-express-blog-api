@@ -6,6 +6,7 @@ const postSchemaDefinition = {
   author: { type: String, required: true },
   status: { type: String, enum: ["draft", "published"], default: "draft" },
   tags: { type: [String], default: [] },
+  currentVersion: { type: Number, default: 0 },
 } as const;
 
 const postSchema = new Schema(postSchemaDefinition, { timestamps: true });

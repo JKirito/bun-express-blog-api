@@ -1,12 +1,14 @@
 import { describe, test, expect, beforeEach } from "bun:test";
 import mongoose from "mongoose";
 import { Post } from "../src/models/post.ts";
+import { PostVersion } from "../src/models/postVersion.ts";
 import { setupTestServer, getBaseUrl, json } from "./setup.ts";
 
 setupTestServer();
 
 beforeEach(async () => {
   await Post.deleteMany({});
+  await PostVersion.deleteMany({});
 });
 
 const samplePost = {
@@ -472,5 +474,281 @@ describe("DELETE /posts/:id", () => {
     const body = await json<ErrorBody>(res);
     expect(body.success).toBe(false);
     expect(body.error.message).toBe("Post not found");
+  });
+});
+
+// ── Versioning ────────────────────────────────────────────────
+
+describe("POST /posts/:id versioning", () => {
+  const longContent = "A".repeat(60); // satisfies 50-char publish requirement
+
+  async function createPost(overrides = {}) {
+    const res = await fetch(`${getBaseUrl()}/posts`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ ...samplePost, content: longContent, ...overrides }),
+    });
+    const body = await json(res);
+    return body.data as Record<string, unknown>;
+  }
+
+  test("PATCH /posts/:id creates a version on edit", async () => {
+    const post = await createPost();
+    const res = await fetch(`${getBaseUrl()}/posts/${post._id}`, {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ title: "Updated Title" }),
+    });
+    expect(res.status).toBe(200);
+    const body = await json(res);
+    expect(body.data.title).toBe("Updated Title");
+    expect(body.data.currentVersion).toBe(1);
+
+    // Check version was saved
+    const historyRes = await fetch(`${getBaseUrl()}/posts/${post._id}/history`);
+    const historyBody = await json<{ success: boolean; data: unknown[] }>(historyRes);
+    expect(historyBody.data).toHaveLength(1);
+    const version = historyBody.data[0] as Record<string, unknown>;
+    expect(version.version).toBe(1);
+    const snapshot = version.snapshot as Record<string, unknown>;
+    expect(snapshot.title).toBe(samplePost.title); // original title
+  });
+
+  test("multiple edits create incrementing versions", async () => {
+    const post = await createPost();
+
+    // Edit 1
+    await fetch(`${getBaseUrl()}/posts/${post._id}`, {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ title: "Edit 1" }),
+    });
+
+    // Edit 2
+    await fetch(`${getBaseUrl()}/posts/${post._id}`, {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ title: "Edit 2" }),
+    });
+
+    // Edit 3
+    const res = await fetch(`${getBaseUrl()}/posts/${post._id}`, {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ title: "Edit 3" }),
+    });
+    const body = await json(res);
+    expect(body.data.currentVersion).toBe(3);
+
+    const historyRes = await fetch(`${getBaseUrl()}/posts/${post._id}/history`);
+    const historyBody = await json<{ success: boolean; data: unknown[] }>(historyRes);
+    expect(historyBody.data).toHaveLength(3);
+
+    // Newest first
+    const versions = historyBody.data as Record<string, unknown>[];
+    expect(versions[0]!.version).toBe(3);
+    expect(versions[1]!.version).toBe(2);
+    expect(versions[2]!.version).toBe(1);
+  });
+});
+
+describe("GET /posts/:id/history", () => {
+  const longContent = "A".repeat(60);
+
+  test("returns empty array for post with no edits", async () => {
+    const createRes = await fetch(`${getBaseUrl()}/posts`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ ...samplePost, content: longContent }),
+    });
+    const created = (await json(createRes)).data as Record<string, unknown>;
+
+    const res = await fetch(`${getBaseUrl()}/posts/${created._id}/history`);
+    expect(res.status).toBe(200);
+    const body = await json<{ success: boolean; data: unknown[] }>(res);
+    expect(body.success).toBe(true);
+    expect(body.data).toHaveLength(0);
+  });
+
+  test("returns 404 for non-existent post", async () => {
+    const fakeId = new mongoose.Types.ObjectId();
+    const res = await fetch(`${getBaseUrl()}/posts/${fakeId}/history`);
+    expect(res.status).toBe(404);
+    const body = await json<ErrorBody>(res);
+    expect(body.success).toBe(false);
+    expect(body.error.message).toBe("Post not found");
+  });
+
+  test("snapshot contains the state before the edit", async () => {
+    const createRes = await fetch(`${getBaseUrl()}/posts`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ ...samplePost, content: longContent, tags: ["original"] }),
+    });
+    const created = (await json(createRes)).data as Record<string, unknown>;
+
+    // Edit title and tags
+    await fetch(`${getBaseUrl()}/posts/${created._id}`, {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ title: "New Title", tags: ["updated"] }),
+    });
+
+    const historyRes = await fetch(`${getBaseUrl()}/posts/${created._id}/history`);
+    const historyBody = await json<{ success: boolean; data: unknown[] }>(historyRes);
+    const version = historyBody.data[0] as Record<string, unknown>;
+    const snapshot = version.snapshot as Record<string, unknown>;
+
+    // Snapshot should have the ORIGINAL values
+    expect(snapshot.title).toBe(samplePost.title);
+    expect(snapshot.content).toBe(longContent);
+    expect(snapshot.tags).toEqual(["original"]);
+  });
+});
+
+describe("PATCH /posts/:id/rollback/:version", () => {
+  const longContent = "A".repeat(60);
+
+  async function createAndEdit() {
+    // Create
+    const createRes = await fetch(`${getBaseUrl()}/posts`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ ...samplePost, content: longContent, tags: ["v0"] }),
+    });
+    const created = (await json(createRes)).data as Record<string, unknown>;
+
+    // Edit 1: change title
+    await fetch(`${getBaseUrl()}/posts/${created._id}`, {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ title: "Version 1 Title" }),
+    });
+
+    // Edit 2: change content
+    await fetch(`${getBaseUrl()}/posts/${created._id}`, {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ content: "Version 2 content that is long enough for publishing" }),
+    });
+
+    return created._id as string;
+  }
+
+  test("rolls back to a specific version", async () => {
+    const postId = await createAndEdit();
+
+    // Rollback to version 1 (state before edit 1 = original state)
+    const res = await fetch(`${getBaseUrl()}/posts/${postId}/rollback/1`, {
+      method: "PATCH",
+    });
+    expect(res.status).toBe(200);
+    const body = await json(res);
+    expect(body.success).toBe(true);
+    expect(body.data.title).toBe(samplePost.title); // back to original
+    expect(body.data.content).toBe(longContent); // back to original
+  });
+
+  test("rollback creates a new version (the rollback itself is versioned)", async () => {
+    const postId = await createAndEdit();
+
+    // Before rollback: 2 versions (from 2 edits)
+    const beforeRes = await fetch(`${getBaseUrl()}/posts/${postId}/history`);
+    const beforeBody = await json<{ success: boolean; data: unknown[] }>(beforeRes);
+    expect(beforeBody.data).toHaveLength(2);
+
+    // Rollback to version 1
+    await fetch(`${getBaseUrl()}/posts/${postId}/rollback/1`, { method: "PATCH" });
+
+    // After rollback: 3 versions (rollback saved current state as version 3)
+    const afterRes = await fetch(`${getBaseUrl()}/posts/${postId}/history`);
+    const afterBody = await json<{ success: boolean; data: unknown[] }>(afterRes);
+    expect(afterBody.data).toHaveLength(3);
+
+    const postRes = await fetch(`${getBaseUrl()}/posts/${postId}`);
+    const postBody = await json(postRes);
+    expect(postBody.data.currentVersion).toBe(3);
+  });
+
+  test("rolling back a published post keeps it published", async () => {
+    const postId = await createAndEdit();
+
+    // Publish first
+    await fetch(`${getBaseUrl()}/posts/${postId}/publish`, { method: "PATCH" });
+
+    // Rollback
+    const res = await fetch(`${getBaseUrl()}/posts/${postId}/rollback/1`, {
+      method: "PATCH",
+    });
+    const body = await json(res);
+    expect(body.data.status).toBe("published");
+  });
+
+  test("returns 404 for non-existent post", async () => {
+    const fakeId = new mongoose.Types.ObjectId();
+    const res = await fetch(`${getBaseUrl()}/posts/${fakeId}/rollback/1`, {
+      method: "PATCH",
+    });
+    expect(res.status).toBe(404);
+  });
+
+  test("returns 404 for non-existent version", async () => {
+    const postId = await createAndEdit();
+    const res = await fetch(`${getBaseUrl()}/posts/${postId}/rollback/999`, {
+      method: "PATCH",
+    });
+    expect(res.status).toBe(404);
+    const body = await json<ErrorBody>(res);
+    expect(body.error.message).toBe("Version 999 not found");
+  });
+
+  test("returns 400 when trying to rollback to version 0", async () => {
+    const postId = await createAndEdit();
+    const res = await fetch(`${getBaseUrl()}/posts/${postId}/rollback/0`, {
+      method: "PATCH",
+    });
+    expect(res.status).toBe(400);
+    const body = await json<ErrorBody>(res);
+    expect(body.error.message).toBe("Cannot rollback to version 0 (original creation)");
+  });
+});
+
+describe("Version pruning", () => {
+  const longContent = "A".repeat(60);
+
+  test("prunes versions beyond 50, keeping the newest", async () => {
+    // Create a post
+    const createRes = await fetch(`${getBaseUrl()}/posts`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ ...samplePost, content: longContent }),
+    });
+    const created = (await json(createRes)).data as Record<string, unknown>;
+    const postId = created._id as string;
+
+    // Insert 52 versions directly (faster than 52 HTTP calls)
+    const versions = Array.from({ length: 52 }, (_, i) => ({
+      postId: new mongoose.Types.ObjectId(postId),
+      version: i + 1,
+      snapshot: { title: `Version ${i + 1}`, content: longContent, author: "Alice", tags: [] },
+    }));
+    await PostVersion.insertMany(versions);
+    await Post.findByIdAndUpdate(postId, { currentVersion: 52 });
+
+    // Trigger one more edit to invoke pruning
+    const res = await fetch(`${getBaseUrl()}/posts/${postId}`, {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ title: "Trigger prune" }),
+    });
+    expect(res.status).toBe(200);
+
+    // Should have exactly 50 versions (pruned oldest)
+    const count = await PostVersion.countDocuments({ postId });
+    expect(count).toBe(50);
+
+    // Oldest remaining should be version 4 (1, 2, 3 pruned; 53 is the new one)
+    const oldest = await PostVersion.findOne({ postId }).sort({ version: 1 });
+    expect(oldest!.version).toBe(4);
   });
 });
