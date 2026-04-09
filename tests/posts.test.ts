@@ -227,6 +227,34 @@ describe("PATCH /posts/:id", () => {
   });
 });
 
+describe("Invalid ObjectId", () => {
+  test("GET /posts/:id returns 400 for invalid id format", async () => {
+    const res = await fetch(`${getBaseUrl()}/posts/not-a-valid-id`);
+    expect(res.status).toBe(400);
+    const body = await json<ErrorBody>(res);
+    expect(body.success).toBe(false);
+    expect(body.error.message).toContain("Invalid");
+  });
+
+  test("PATCH /posts/:id returns 400 for invalid id format", async () => {
+    const res = await patch("/posts/not-a-valid-id", { title: "nope" });
+    expect(res.status).toBe(400);
+    const body = await json<ErrorBody>(res);
+    expect(body.success).toBe(false);
+    expect(body.error.message).toContain("Invalid");
+  });
+
+  test("DELETE /posts/:id returns 400 for invalid id format", async () => {
+    const res = await fetch(`${getBaseUrl()}/posts/not-a-valid-id`, {
+      method: "DELETE",
+    });
+    expect(res.status).toBe(400);
+    const body = await json<ErrorBody>(res);
+    expect(body.success).toBe(false);
+    expect(body.error.message).toContain("Invalid");
+  });
+});
+
 describe("DELETE /posts/:id", () => {
   test("deletes a post and returns 204", async () => {
     const created = await Post.create(samplePost);

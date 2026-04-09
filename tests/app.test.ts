@@ -79,36 +79,47 @@ describe("POST /echo", () => {
 });
 
 describe("Invalid JSON", () => {
-  test("returns 400 for malformed JSON body", async () => {
+  test("returns 400 with JSON error envelope for malformed body", async () => {
     const res = await fetch(`${getBaseUrl()}/echo`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: "{invalid json",
     });
     expect(res.status).toBe(400);
+    const data = await json(res);
+    expect(data.success).toBe(false);
+    expect(data.error.message).toBe("Malformed JSON in request body");
   });
 });
 
 describe("Method not allowed", () => {
-  test("DELETE on / returns 404", async () => {
+  test("DELETE on / returns 404 with JSON error envelope", async () => {
     const res = await fetch(`${getBaseUrl()}/`, { method: "DELETE" });
     expect(res.status).toBe(404);
+    const data = await json(res);
+    expect(data).toEqual({ success: false, error: { message: "Not found" } });
   });
 
-  test("PUT on /health returns 404", async () => {
+  test("PUT on /health returns 404 with JSON error envelope", async () => {
     const res = await fetch(`${getBaseUrl()}/health`, { method: "PUT" });
     expect(res.status).toBe(404);
+    const data = await json(res);
+    expect(data.success).toBe(false);
   });
 
-  test("GET on /echo returns 404", async () => {
+  test("GET on /echo returns 404 with JSON error envelope", async () => {
     const res = await fetch(`${getBaseUrl()}/echo`, { method: "GET" });
     expect(res.status).toBe(404);
+    const data = await json(res);
+    expect(data.success).toBe(false);
   });
 });
 
 describe("Unknown routes", () => {
-  test("returns 404 for unknown path", async () => {
+  test("returns 404 with JSON error envelope for unknown path", async () => {
     const res = await fetch(`${getBaseUrl()}/nonexistent`);
     expect(res.status).toBe(404);
+    const data = await json(res);
+    expect(data).toEqual({ success: false, error: { message: "Not found" } });
   });
 });
