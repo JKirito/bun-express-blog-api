@@ -3,12 +3,13 @@ import { Post } from "../models/post.ts";
 import { validate } from "../middleware/validate.ts";
 import { createPostSchema, updatePostSchema } from "../schemas/post.ts";
 import { sendSuccess, sendError } from "../utils/response.ts";
+import { publishPost } from "../services/post.service.ts";
 
 const router = Router();
 
-// GET /posts - List all posts
+// GET /posts - List all published posts
 router.get("/", async (_req: Request, res: Response) => {
-  const posts = await Post.find().sort({ createdAt: -1 });
+  const posts = await Post.find({ status: "published" }).sort({ createdAt: -1 });
   sendSuccess(res, posts);
 });
 
@@ -39,6 +40,12 @@ router.patch("/:id", validate(updatePostSchema), async (req: Request, res: Respo
     sendError(res, "Post not found", 404);
     return;
   }
+  sendSuccess(res, post);
+});
+
+// PATCH /posts/:id/publish - Publish a draft post
+router.patch("/:id/publish", async (req: Request, res: Response) => {
+  const post = await publishPost(req.params["id"]!);
   sendSuccess(res, post);
 });
 

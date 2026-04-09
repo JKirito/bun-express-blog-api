@@ -1,12 +1,19 @@
 import type { Request, Response, NextFunction } from "express";
 import mongoose from "mongoose";
 import { sendError } from "../utils/response.ts";
+import { AppError } from "../errors/index.ts";
 
 export function notFoundHandler(_req: Request, res: Response): void {
   sendError(res, "Not found", 404);
 }
 
 export function errorHandler(err: Error, _req: Request, res: Response, _next: NextFunction): void {
+  // Custom application errors (NotFoundError, ConflictError, BadRequestError, etc.)
+  if (err instanceof AppError) {
+    sendError(res, err.message, err.statusCode);
+    return;
+  }
+
   // Mongoose CastError -- invalid ObjectId format
   if (err instanceof mongoose.Error.CastError) {
     sendError(res, `Invalid ${err.path}: ${err.value}`, 400);

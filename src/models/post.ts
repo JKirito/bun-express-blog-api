@@ -4,6 +4,7 @@ const postSchemaDefinition = {
   title: { type: String, required: true },
   content: { type: String, required: true },
   author: { type: String, required: true },
+  status: { type: String, enum: ["draft", "published"], default: "draft" },
 } as const;
 
 const postSchema = new Schema(postSchemaDefinition, { timestamps: true });

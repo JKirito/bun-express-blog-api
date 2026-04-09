@@ -11,7 +11,7 @@ beforeEach(async () => {
 
 const samplePost = {
   title: "Test Post",
-  content: "This is test content",
+  content: "This is test content that is long enough to be published if needed for tests",
   author: "Alice",
 };
 
@@ -45,7 +45,7 @@ function patch(path: string, body: unknown) {
 }
 
 describe("POST /posts", () => {
-  test("creates a post and returns 201", async () => {
+  test("creates a post as draft and returns 201", async () => {
     const res = await post("/posts", samplePost);
     expect(res.status).toBe(201);
     const body = await json<SuccessBody>(res);
@@ -53,9 +53,17 @@ describe("POST /posts", () => {
     expect(body.data.title).toBe(samplePost.title);
     expect(body.data.content).toBe(samplePost.content);
     expect(body.data.author).toBe(samplePost.author);
+    expect(body.data.status).toBe("draft");
     expect(body.data._id).toBeDefined();
     expect(body.data.createdAt).toBeDefined();
     expect(body.data.updatedAt).toBeDefined();
+  });
+
+  test("ignores status field in request body", async () => {
+    const res = await post("/posts", { ...samplePost, status: "published" });
+    expect(res.status).toBe(201);
+    const body = await json<SuccessBody>(res);
+    expect(body.data.status).toBe("draft");
   });
 
   test("returns 400 when title is missing", async () => {
@@ -141,9 +149,21 @@ describe("GET /posts", () => {
     expect(body.data).toEqual([]);
   });
 
-  test("returns all posts sorted by newest first", async () => {
-    await Post.create({ ...samplePost, title: "First" });
-    await Post.create({ ...samplePost, title: "Second" });
+  test("returns only published posts", async () => {
+    await Post.create({ ...samplePost, title: "Draft Post", status: "draft" });
+    await Post.create({ ...samplePost, title: "Published Post", status: "published" });
+
+    const res = await fetch(`${getBaseUrl()}/posts`);
+    expect(res.status).toBe(200);
+    const body = await json<{ success: true; data: Record<string, unknown>[] }>(res);
+    expect(body.success).toBe(true);
+    expect(body.data).toHaveLength(1);
+    expect(body.data[0]!.title).toBe("Published Post");
+  });
+
+  test("returns published posts sorted by newest first", async () => {
+    await Post.create({ ...samplePost, title: "First", status: "published" });
+    await Post.create({ ...samplePost, title: "Second", status: "published" });
 
     const res = await fetch(`${getBaseUrl()}/posts`);
     expect(res.status).toBe(200);
@@ -248,6 +268,60 @@ describe("Invalid ObjectId", () => {
     const res = await fetch(`${getBaseUrl()}/posts/not-a-valid-id`, {
       method: "DELETE",
     });
+    expect(res.status).toBe(400);
+    const body = await json<ErrorBody>(res);
+    expect(body.success).toBe(false);
+    expect(body.error.message).toContain("Invalid");
+  });
+});
+
+describe("PATCH /posts/:id/publish", () => {
+  test("publishes a draft post and returns 200", async () => {
+    const created = await Post.create(samplePost);
+    expect(created.status).toBe("draft");
+
+    const res = await patch(`/posts/${created._id}/publish`, {});
+    expect(res.status).toBe(200);
+    const body = await json<SuccessBody>(res);
+    expect(body.success).toBe(true);
+    expect(body.data.status).toBe("published");
+  });
+
+  test("returns 409 when post is already published", async () => {
+    const created = await Post.create({ ...samplePost, status: "published" });
+
+    const res = await patch(`/posts/${created._id}/publish`, {});
+    expect(res.status).toBe(409);
+    const body = await json<ErrorBody>(res);
+    expect(body.success).toBe(false);
+    expect(body.error.message).toBe("Post is already published");
+  });
+
+  test("returns 400 when content is too short to publish", async () => {
+    const created = await Post.create({
+      title: "Short Post",
+      content: "Too short",
+      author: "Alice",
+    });
+
+    const res = await patch(`/posts/${created._id}/publish`, {});
+    expect(res.status).toBe(400);
+    const body = await json<ErrorBody>(res);
+    expect(body.success).toBe(false);
+    expect(body.error.message).toContain("at least 50 characters");
+  });
+
+  test("returns 404 when post does not exist", async () => {
+    const fakeId = new mongoose.Types.ObjectId();
+    const res = await patch(`/posts/${fakeId}/publish`, {});
+    expect(res.status).toBe(404);
+    const body = await json<ErrorBody>(res);
+    expect(body.success).toBe(false);
+    expect(body.error.message).toBe("Post not found");
+  });
+
+  test("returns 400 for invalid ObjectId", async () => {
+    const res = await patch("/posts/not-valid/publish", {});
     expect(res.status).toBe(400);
     const body = await json<ErrorBody>(res);
     expect(body.success).toBe(false);
