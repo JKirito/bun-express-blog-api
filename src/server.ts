@@ -1,10 +1,9 @@
 import app from "./app.ts";
+import config from "./config/index.ts";
 import { connectDB } from "./db.ts";
-
-const port = process.env["PORT"] || 3000;
 
 await connectDB();
 
-app.listen(port, () => {
-  console.log(`Server is running on http://localhost:${port}`);
+app.listen(config.PORT, () => {
+  console.log(`Server is running on http://localhost:${config.PORT} [${config.NODE_ENV}]`);
 });
