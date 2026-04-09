@@ -2,29 +2,30 @@ import { Router, type Request, type Response } from "express";
 import { Post } from "../models/post.ts";
 import { validate } from "../middleware/validate.ts";
 import { createPostSchema, updatePostSchema } from "../schemas/post.ts";
+import { sendSuccess, sendError } from "../utils/response.ts";
 
 const router = Router();
 
 // GET /posts - List all posts
 router.get("/", async (_req: Request, res: Response) => {
   const posts = await Post.find().sort({ createdAt: -1 });
-  res.json(posts);
+  sendSuccess(res, posts);
 });
 
 // GET /posts/:id - Get a single post
 router.get("/:id", async (req: Request, res: Response) => {
   const post = await Post.findById(req.params["id"]);
   if (!post) {
-    res.status(404).json({ error: "Post not found" });
+    sendError(res, "Post not found", 404);
     return;
   }
-  res.json(post);
+  sendSuccess(res, post);
 });
 
 // POST /posts - Create a new post
 router.post("/", validate(createPostSchema), async (req: Request, res: Response) => {
   const post = await Post.create(req.body);
-  res.status(201).json(post);
+  sendSuccess(res, post, 201);
 });
 
 // PATCH /posts/:id - Update a post
@@ -35,17 +36,17 @@ router.patch("/:id", validate(updatePostSchema), async (req: Request, res: Respo
   });
 
   if (!post) {
-    res.status(404).json({ error: "Post not found" });
+    sendError(res, "Post not found", 404);
     return;
   }
-  res.json(post);
+  sendSuccess(res, post);
 });
 
 // DELETE /posts/:id - Delete a post
 router.delete("/:id", async (req: Request, res: Response) => {
   const post = await Post.findByIdAndDelete(req.params["id"]);
   if (!post) {
-    res.status(404).json({ error: "Post not found" });
+    sendError(res, "Post not found", 404);
     return;
   }
   res.status(204).send();

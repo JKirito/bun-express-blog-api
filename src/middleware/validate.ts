@@ -1,5 +1,6 @@
 import type { Request, Response, NextFunction } from "express";
 import { z } from "zod";
+import { sendError } from "../utils/response.ts";
 
 export function validate(schema: z.ZodType) {
   return (req: Request, res: Response, next: NextFunction): void => {
@@ -10,7 +11,7 @@ export function validate(schema: z.ZodType) {
         field: issue.path.join("."),
         message: issue.message,
       }));
-      res.status(400).json({ errors });
+      sendError(res, "Validation failed", 400, errors);
       return;
     }
 

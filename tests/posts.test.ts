@@ -15,6 +15,19 @@ const samplePost = {
   author: "Alice",
 };
 
+interface ErrorBody {
+  success: false;
+  error: {
+    message: string;
+    errors?: { field: string; message: string }[];
+  };
+}
+
+interface SuccessBody {
+  success: true;
+  data: Record<string, unknown>;
+}
+
 function post(path: string, body: unknown) {
   return fetch(`${getBaseUrl()}${path}`, {
     method: "POST",
@@ -35,61 +48,67 @@ describe("POST /posts", () => {
   test("creates a post and returns 201", async () => {
     const res = await post("/posts", samplePost);
     expect(res.status).toBe(201);
-    const data = await json(res);
-    expect(data.title).toBe(samplePost.title);
-    expect(data.content).toBe(samplePost.content);
-    expect(data.author).toBe(samplePost.author);
-    expect(data._id).toBeDefined();
-    expect(data.createdAt).toBeDefined();
-    expect(data.updatedAt).toBeDefined();
+    const body = await json<SuccessBody>(res);
+    expect(body.success).toBe(true);
+    expect(body.data.title).toBe(samplePost.title);
+    expect(body.data.content).toBe(samplePost.content);
+    expect(body.data.author).toBe(samplePost.author);
+    expect(body.data._id).toBeDefined();
+    expect(body.data.createdAt).toBeDefined();
+    expect(body.data.updatedAt).toBeDefined();
   });
 
   test("returns 400 when title is missing", async () => {
     const res = await post("/posts", { content: "no title", author: "Bob" });
     expect(res.status).toBe(400);
-    const data = await json<{ errors: { field: string; message: string }[] }>(res);
-    expect(data.errors).toBeArrayOfSize(1);
-    expect(data.errors[0]!.field).toBe("title");
+    const body = await json<ErrorBody>(res);
+    expect(body.success).toBe(false);
+    expect(body.error.message).toBe("Validation failed");
+    expect(body.error.errors).toBeArrayOfSize(1);
+    expect(body.error.errors![0]!.field).toBe("title");
   });
 
   test("returns 400 when content is missing", async () => {
     const res = await post("/posts", { title: "no content", author: "Bob" });
     expect(res.status).toBe(400);
-    const data = await json<{ errors: { field: string; message: string }[] }>(res);
-    expect(data.errors).toBeArrayOfSize(1);
-    expect(data.errors[0]!.field).toBe("content");
+    const body = await json<ErrorBody>(res);
+    expect(body.success).toBe(false);
+    expect(body.error.errors).toBeArrayOfSize(1);
+    expect(body.error.errors![0]!.field).toBe("content");
   });
 
   test("returns 400 when author is missing", async () => {
     const res = await post("/posts", { title: "no author", content: "text" });
     expect(res.status).toBe(400);
-    const data = await json<{ errors: { field: string; message: string }[] }>(res);
-    expect(data.errors).toBeArrayOfSize(1);
-    expect(data.errors[0]!.field).toBe("author");
+    const body = await json<ErrorBody>(res);
+    expect(body.success).toBe(false);
+    expect(body.error.errors).toBeArrayOfSize(1);
+    expect(body.error.errors![0]!.field).toBe("author");
   });
 
   test("returns 400 with all errors when all fields missing", async () => {
     const res = await post("/posts", {});
     expect(res.status).toBe(400);
-    const data = await json<{ errors: { field: string; message: string }[] }>(res);
-    expect(data.errors).toBeArrayOfSize(3);
-    const fields = data.errors.map((e) => e.field).sort();
+    const body = await json<ErrorBody>(res);
+    expect(body.success).toBe(false);
+    expect(body.error.errors).toBeArrayOfSize(3);
+    const fields = body.error.errors!.map((e) => e.field).sort();
     expect(fields).toEqual(["author", "content", "title"]);
   });
 
   test("returns 400 when title is empty string", async () => {
     const res = await post("/posts", { title: "", content: "text", author: "Bob" });
     expect(res.status).toBe(400);
-    const data = await json<{ errors: { field: string; message: string }[] }>(res);
-    expect(data.errors[0]!.field).toBe("title");
-    expect(data.errors[0]!.message).toContain("required");
+    const body = await json<ErrorBody>(res);
+    expect(body.error.errors![0]!.field).toBe("title");
+    expect(body.error.errors![0]!.message).toContain("required");
   });
 
   test("returns 400 when title is wrong type", async () => {
     const res = await post("/posts", { title: 123, content: "text", author: "Bob" });
     expect(res.status).toBe(400);
-    const data = await json<{ errors: { field: string; message: string }[] }>(res);
-    expect(data.errors[0]!.field).toBe("title");
+    const body = await json<ErrorBody>(res);
+    expect(body.error.errors![0]!.field).toBe("title");
   });
 
   test("returns 400 when title exceeds max length", async () => {
@@ -99,16 +118,17 @@ describe("POST /posts", () => {
       author: "Bob",
     });
     expect(res.status).toBe(400);
-    const data = await json<{ errors: { field: string; message: string }[] }>(res);
-    expect(data.errors[0]!.field).toBe("title");
-    expect(data.errors[0]!.message).toContain("200");
+    const body = await json<ErrorBody>(res);
+    expect(body.error.errors![0]!.field).toBe("title");
+    expect(body.error.errors![0]!.message).toContain("200");
   });
 
   test("strips unknown fields from request body", async () => {
     const res = await post("/posts", { ...samplePost, evil: "hacked" });
     expect(res.status).toBe(201);
-    const data = await json(res);
-    expect(data.evil).toBeUndefined();
+    const body = await json<SuccessBody>(res);
+    expect(body.success).toBe(true);
+    expect(body.data.evil).toBeUndefined();
   });
 });
 
@@ -116,8 +136,9 @@ describe("GET /posts", () => {
   test("returns empty array when no posts exist", async () => {
     const res = await fetch(`${getBaseUrl()}/posts`);
     expect(res.status).toBe(200);
-    const data = await json<unknown[]>(res);
-    expect(data).toEqual([]);
+    const body = await json<{ success: true; data: unknown[] }>(res);
+    expect(body.success).toBe(true);
+    expect(body.data).toEqual([]);
   });
 
   test("returns all posts sorted by newest first", async () => {
@@ -126,10 +147,11 @@ describe("GET /posts", () => {
 
     const res = await fetch(`${getBaseUrl()}/posts`);
     expect(res.status).toBe(200);
-    const data = await json<Record<string, unknown>[]>(res);
-    expect(data).toHaveLength(2);
-    expect(data[0]!.title).toBe("Second");
-    expect(data[1]!.title).toBe("First");
+    const body = await json<{ success: true; data: Record<string, unknown>[] }>(res);
+    expect(body.success).toBe(true);
+    expect(body.data).toHaveLength(2);
+    expect(body.data[0]!.title).toBe("Second");
+    expect(body.data[1]!.title).toBe("First");
   });
 });
 
@@ -139,16 +161,18 @@ describe("GET /posts/:id", () => {
 
     const res = await fetch(`${getBaseUrl()}/posts/${created._id}`);
     expect(res.status).toBe(200);
-    const data = await json(res);
-    expect(data.title).toBe(samplePost.title);
+    const body = await json<SuccessBody>(res);
+    expect(body.success).toBe(true);
+    expect(body.data.title).toBe(samplePost.title);
   });
 
   test("returns 404 for non-existent id", async () => {
     const fakeId = new mongoose.Types.ObjectId();
     const res = await fetch(`${getBaseUrl()}/posts/${fakeId}`);
     expect(res.status).toBe(404);
-    const data = await json(res);
-    expect(data.error).toBe("Post not found");
+    const body = await json<ErrorBody>(res);
+    expect(body.success).toBe(false);
+    expect(body.error.message).toBe("Post not found");
   });
 });
 
@@ -158,15 +182,19 @@ describe("PATCH /posts/:id", () => {
 
     const res = await patch(`/posts/${created._id}`, { title: "Updated Title" });
     expect(res.status).toBe(200);
-    const data = await json(res);
-    expect(data.title).toBe("Updated Title");
-    expect(data.content).toBe(samplePost.content);
+    const body = await json<SuccessBody>(res);
+    expect(body.success).toBe(true);
+    expect(body.data.title).toBe("Updated Title");
+    expect(body.data.content).toBe(samplePost.content);
   });
 
   test("returns 404 when updating non-existent post", async () => {
     const fakeId = new mongoose.Types.ObjectId();
     const res = await patch(`/posts/${fakeId}`, { title: "nope" });
     expect(res.status).toBe(404);
+    const body = await json<ErrorBody>(res);
+    expect(body.success).toBe(false);
+    expect(body.error.message).toBe("Post not found");
   });
 
   test("returns 400 when update field is empty string", async () => {
@@ -174,8 +202,8 @@ describe("PATCH /posts/:id", () => {
 
     const res = await patch(`/posts/${created._id}`, { title: "" });
     expect(res.status).toBe(400);
-    const data = await json<{ errors: { field: string; message: string }[] }>(res);
-    expect(data.errors[0]!.field).toBe("title");
+    const body = await json<ErrorBody>(res);
+    expect(body.error.errors![0]!.field).toBe("title");
   });
 
   test("returns 400 when update field is wrong type", async () => {
@@ -183,8 +211,8 @@ describe("PATCH /posts/:id", () => {
 
     const res = await patch(`/posts/${created._id}`, { title: 42 });
     expect(res.status).toBe(400);
-    const data = await json<{ errors: { field: string; message: string }[] }>(res);
-    expect(data.errors[0]!.field).toBe("title");
+    const body = await json<ErrorBody>(res);
+    expect(body.error.errors![0]!.field).toBe("title");
   });
 
   test("accepts valid partial updates", async () => {
@@ -192,9 +220,10 @@ describe("PATCH /posts/:id", () => {
 
     const res = await patch(`/posts/${created._id}`, { author: "Bob" });
     expect(res.status).toBe(200);
-    const data = await json(res);
-    expect(data.author).toBe("Bob");
-    expect(data.title).toBe(samplePost.title);
+    const body = await json<SuccessBody>(res);
+    expect(body.success).toBe(true);
+    expect(body.data.author).toBe("Bob");
+    expect(body.data.title).toBe(samplePost.title);
   });
 });
 
@@ -217,5 +246,8 @@ describe("DELETE /posts/:id", () => {
       method: "DELETE",
     });
     expect(res.status).toBe(404);
+    const body = await json<ErrorBody>(res);
+    expect(body.success).toBe(false);
+    expect(body.error.message).toBe("Post not found");
   });
 });

@@ -9,10 +9,13 @@ describe("GET /", () => {
     expect(res.status).toBe(200);
   });
 
-  test("returns correct JSON message", async () => {
+  test("returns correct JSON message in envelope", async () => {
     const res = await fetch(`${getBaseUrl()}/`);
     const data = await json(res);
-    expect(data).toEqual({ message: "Hello from Bun + Express!" });
+    expect(data).toEqual({
+      success: true,
+      data: { message: "Hello from Bun + Express!" },
+    });
   });
 
   test("returns content-type application/json", async () => {
@@ -30,7 +33,10 @@ describe("GET /health", () => {
   test("returns ok status in body", async () => {
     const res = await fetch(`${getBaseUrl()}/health`);
     const data = await json(res);
-    expect(data).toEqual({ status: "ok" });
+    expect(data).toEqual({
+      success: true,
+      data: { status: "ok" },
+    });
   });
 });
 
@@ -44,7 +50,8 @@ describe("POST /echo", () => {
     });
     expect(res.status).toBe(200);
     const data = await json(res);
-    expect(data).toEqual({ echo: body });
+    expect(data.success).toBe(true);
+    expect(data.data).toEqual({ echo: body });
   });
 
   test("echoes nested JSON correctly", async () => {
@@ -55,7 +62,8 @@ describe("POST /echo", () => {
       body: JSON.stringify(body),
     });
     const data = await json(res);
-    expect(data).toEqual({ echo: body });
+    expect(data.success).toBe(true);
+    expect(data.data).toEqual({ echo: body });
   });
 
   test("returns empty echo when no body is sent", async () => {
@@ -65,7 +73,8 @@ describe("POST /echo", () => {
     });
     expect(res.status).toBe(200);
     const data = await json(res);
-    expect(data).toEqual({ echo: {} });
+    expect(data.success).toBe(true);
+    expect(data.data).toEqual({ echo: {} });
   });
 });
 
