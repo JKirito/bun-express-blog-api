@@ -37,6 +37,11 @@ export function getBaseUrl(): string {
   return baseUrl;
 }
 
+/** Type-safe JSON parsing for test responses. */
+export async function json<T = Record<string, unknown>>(res: Response): Promise<T> {
+  return (await res.json()) as T;
+}
+
 // Global cleanup when the process exits
 process.on("beforeExit", async () => {
   if (server) server.close();

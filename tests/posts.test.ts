@@ -1,7 +1,7 @@
 import { describe, test, expect, beforeEach } from "bun:test";
 import mongoose from "mongoose";
 import { Post } from "../src/models/post.ts";
-import { setupTestServer, getBaseUrl } from "./setup.ts";
+import { setupTestServer, getBaseUrl, json } from "./setup.ts";
 
 setupTestServer();
 
@@ -23,7 +23,7 @@ describe("POST /posts", () => {
       body: JSON.stringify(samplePost),
     });
     expect(res.status).toBe(201);
-    const data = await res.json();
+    const data = await json(res);
     expect(data.title).toBe(samplePost.title);
     expect(data.content).toBe(samplePost.content);
     expect(data.author).toBe(samplePost.author);
@@ -39,7 +39,7 @@ describe("POST /posts", () => {
       body: JSON.stringify({ content: "no title", author: "Bob" }),
     });
     expect(res.status).toBe(400);
-    const data = await res.json();
+    const data = await json(res);
     expect(data.error).toBeDefined();
   });
 
@@ -66,7 +66,7 @@ describe("GET /posts", () => {
   test("returns empty array when no posts exist", async () => {
     const res = await fetch(`${getBaseUrl()}/posts`);
     expect(res.status).toBe(200);
-    const data = await res.json();
+    const data = await json<unknown[]>(res);
     expect(data).toEqual([]);
   });
 
@@ -76,10 +76,10 @@ describe("GET /posts", () => {
 
     const res = await fetch(`${getBaseUrl()}/posts`);
     expect(res.status).toBe(200);
-    const data = await res.json();
+    const data = await json<Record<string, unknown>[]>(res);
     expect(data).toHaveLength(2);
-    expect(data[0].title).toBe("Second");
-    expect(data[1].title).toBe("First");
+    expect(data[0]!.title).toBe("Second");
+    expect(data[1]!.title).toBe("First");
   });
 });
 
@@ -89,7 +89,7 @@ describe("GET /posts/:id", () => {
 
     const res = await fetch(`${getBaseUrl()}/posts/${post._id}`);
     expect(res.status).toBe(200);
-    const data = await res.json();
+    const data = await json(res);
     expect(data.title).toBe(samplePost.title);
   });
 
@@ -97,7 +97,7 @@ describe("GET /posts/:id", () => {
     const fakeId = new mongoose.Types.ObjectId();
     const res = await fetch(`${getBaseUrl()}/posts/${fakeId}`);
     expect(res.status).toBe(404);
-    const data = await res.json();
+    const data = await json(res);
     expect(data.error).toBe("Post not found");
   });
 });
@@ -112,7 +112,7 @@ describe("PATCH /posts/:id", () => {
       body: JSON.stringify({ title: "Updated Title" }),
     });
     expect(res.status).toBe(200);
-    const data = await res.json();
+    const data = await json(res);
     expect(data.title).toBe("Updated Title");
     expect(data.content).toBe(samplePost.content);
   });

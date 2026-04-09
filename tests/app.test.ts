@@ -1,5 +1,5 @@
 import { describe, test, expect } from "bun:test";
-import { setupTestServer, getBaseUrl } from "./setup.ts";
+import { setupTestServer, getBaseUrl, json } from "./setup.ts";
 
 setupTestServer();
 
@@ -11,7 +11,7 @@ describe("GET /", () => {
 
   test("returns correct JSON message", async () => {
     const res = await fetch(`${getBaseUrl()}/`);
-    const data = await res.json();
+    const data = await json(res);
     expect(data).toEqual({ message: "Hello from Bun + Express!" });
   });
 
@@ -29,7 +29,7 @@ describe("GET /health", () => {
 
   test("returns ok status in body", async () => {
     const res = await fetch(`${getBaseUrl()}/health`);
-    const data = await res.json();
+    const data = await json(res);
     expect(data).toEqual({ status: "ok" });
   });
 });
@@ -43,7 +43,7 @@ describe("POST /echo", () => {
       body: JSON.stringify(body),
     });
     expect(res.status).toBe(200);
-    const data = await res.json();
+    const data = await json(res);
     expect(data).toEqual({ echo: body });
   });
 
@@ -54,7 +54,7 @@ describe("POST /echo", () => {
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify(body),
     });
-    const data = await res.json();
+    const data = await json(res);
     expect(data).toEqual({ echo: body });
   });
 
@@ -64,7 +64,7 @@ describe("POST /echo", () => {
       headers: { "Content-Type": "application/json" },
     });
     expect(res.status).toBe(200);
-    const data = await res.json();
+    const data = await json(res);
     expect(data).toEqual({ echo: {} });
   });
 });
