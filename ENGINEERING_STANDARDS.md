@@ -22,44 +22,7 @@ This document defines **how to work in this codebase** — how features are stru
 
 ## Folder Structure
 
-### Current structure (type-based, up to ~4 domains)
-
-```
-src/
-├── app.ts                   # Express app: middleware + routes + error handlers
-├── server.ts                # Entry point: DB connect + app.listen()
-├── db.ts                    # Database connection helpers
-├── config/
-│   └── index.ts             # Validated environment config (Zod)
-├── errors/
-│   └── index.ts             # Typed error classes (AppError + subclasses)
-├── middleware/
-│   ├── errorHandler.ts      # Global 404 and error handlers
-│   ├── rateLimiter.ts       # Rate limiting (in-memory)
-│   ├── requestCounter.ts    # Request metrics (in-memory)
-│   └── validate.ts          # Zod schema validation middleware factory
-├── models/
-│   ├── post.ts              # Mongoose Post schema
-│   └── postVersion.ts       # Mongoose PostVersion schema
-├── routes/
-│   ├── index.ts             # Utility routes: /, /health, /echo, /metrics
-│   └── posts.ts             # Post resource routes
-├── schemas/
-│   └── post.ts              # Zod input validation schemas for posts
-├── services/
-│   ├── post.service.ts      # Post business logic
-│   └── version.service.ts   # Version/history business logic
-└── utils/
-    └── response.ts          # sendSuccess() / sendError() helpers
-tests/
-├── setup.ts                 # Shared server + DB lifecycle
-├── app.test.ts              # Tests for utility routes and infrastructure
-└── posts.test.ts            # Tests for post resource
-```
-
-This structure groups files by **what they are** (model, route, service). It works well up to roughly 4–5 distinct domains (resources).
-
-### When to switch to feature modules
+### feature modules
 
 Switch when you are about to add a **third or fourth distinct domain** beyond what already exists — for example, adding `users`, `comments`, or `payments` alongside the existing `posts`.
 
@@ -396,24 +359,6 @@ docs/update-api-reference
    PR from dev to main → production deploy
 ```
 
-### Hotfix (the only exception to the flow)
-
-A production bug needs immediate fixing:
-
-```
-1. Branch off main:  git checkout -b hotfix/critical-issue main
-2. Fix the issue
-3. PR directly to main — gets deployed immediately
-4. Immediately open a second PR from main back to dev — keeps branches in sync
-```
-
-### Rules
-
-- No direct commits to `main` or `dev` — everything goes through a PR
-- `main` is always deployable — every commit on it must pass CI
-- Keep branches short — a branch that lives longer than a week is drifting away from `dev` and building up merge conflicts
-- One feature per branch — do not mix unrelated changes
-
 ---
 
 ## Commit Message Format
@@ -458,40 +403,6 @@ docs: update API reference with /history endpoint
 
 ---
 
-## PR Standards
-
-### What a PR must include
-
-1. **Title** — follows the commit message format: `feat: add user authentication`
-2. **Description** — what changed and why (not a repetition of the commit list)
-3. **How to test** — steps to verify the behavior manually if needed
-4. **Breaking changes** — if any endpoint contract changed, call it out explicitly
-
-### PR size
-
-A PR should be reviewable in under 30 minutes. If it isn't, split it into sequential smaller PRs.
-
-Signs a PR is too large:
-- More than ~400 lines changed across unrelated files
-- It adds multiple distinct features
-- The reviewer needs to understand the whole system to review any part of it
-
-### Before opening a PR for review
-
-- [ ] `bun test` passes locally
-- [ ] No TypeScript errors (`bun run typecheck` when that script exists)
-- [ ] Self-reviewed the diff — caught obvious things before asking someone else to find them
-- [ ] New behavior has tests
-- [ ] PR description is written
-
-### Review expectations
-
-- Reviewer approves only what they understand — "LGTM" on unread code is worse than no review
-- Author addresses all comments before merging — do not merge with unresolved threads
-- Reviews are about code quality and design, not about catching the same bugs the CI should catch
-
----
-
 ## Deployment Environments
 
 ### Environment-to-branch mapping
@@ -502,35 +413,7 @@ Signs a PR is too large:
 | Dev / Staging | `dev` | Auto-deploy on merge |
 | Production | `main` | Auto-deploy on merge |
 
-### Environment variables per environment
-
-All environments use the same variable names. Values differ:
-
-| Variable | Local | Dev | Production |
-|---|---|---|---|
-| `NODE_ENV` | `development` | `development` | `production` |
-| `PORT` | `3000` | assigned by platform | assigned by platform |
-| `MONGO_URI` | `mongodb://localhost:27017/bun_app` | managed DB URI | managed DB URI |
-
 **Rule:** Never commit `.env` files. Use `.env.example` as the template. Real values are injected by the deployment platform or a secrets manager.
-
-### Recommended platforms
-
-| Use case | Platform | Approx. cost |
-|---|---|---|
-| Free demo / portfolio | Render free tier + MongoDB Atlas M0 | $0/month |
-| Always-on, low traffic | Fly.io (`shared-cpu-1x`) | ~$2–3/month |
-| Team project | Railway Hobby | $5/month |
-
-### Health check requirement
-
-Every deployment platform requires a health check endpoint. `GET /health` must:
-- Return `200` when the application and DB connection are both healthy
-- Return `503` when the DB is unreachable — the platform must know the service is degraded
-
-Currently `GET /health` only confirms Express is running. Before deploying, upgrade it to ping MongoDB.
-
----
 
 ## Logging Standards
 
